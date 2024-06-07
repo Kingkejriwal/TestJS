@@ -1,20 +1,52 @@
-name: Build
+name: SonarQube Analysis
+
 on:
   push:
     branches:
+      - master
       - main
   pull_request:
-    types: [opened, synchronize, reopened]
+    branches:
+      - master
+      - main
+
 jobs:
-  sonarcloud:
-    name: SonarCloud
+  sonarqube:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v2
         with:
-          fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
-      - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@master
+          node-version: '16'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Start SonarQube
+        run: |
+          docker pull sonarqube:latest
+          docker run -d --name sonarqube -p 9000:9000 sonarqube:latest
+          # Wait for SonarQube to start up
+          echo "Waiting for SonarQube to start..."
+          timeout 300 sh -c 'until curl -s http://localhost:9000/api/system/status | grep -q "UP"; do sleep 5; done'
+
+      - name: Run tests
+        run: npm test
+
+      - name: Run SonarQube analysis
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          npm install -g sonarqube-scanner
+          sonar-scanner \
+            -Dsonar.projectKey=react-sunnyResort \
+            -Dsonar.sources=. \
+            -Dsonar.host.url=http://localhost:9000 \
+            -Dsonar.login=${{ secrets.SONAR_TOKEN }}
+
+      - name: Stop SonarQube
+        run: docker stop sonarqube
